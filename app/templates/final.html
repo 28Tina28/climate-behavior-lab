@@ -1,0 +1,125 @@
+ <!DOCTYPE html>
+ <html><head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width,initial-scale=1.0">
+ <title>Analysis</title>
+ <link rel="stylesheet" href="/static/css/style.css">
+ <script src="/static/js/chart.umd.min.js"></script>
+ <script src="/static/js/chartjs-adapter-date-fns.bundle.min.js"></script>
+ </head><body>
+ <nav class="nav"><span class="nav-title">微气候观测</span><a href="/">概览</a><a href="/upload">上传</a><a href="/static/final.html" class="active">分析</a></nav>
+ <div class="container">
+ <div class="card"><div class="card-title">Batches</div>
+ <div class="filter-bar" id="filters"></div>
+ <div style="margin-top:8px;display:flex;gap:8px">
+ <button class="btn btn-outline" id="btnAll">All</button>
+ <button class="btn btn-outline" id="btnClr">Clear</button>
+ <button class="btn btn-primary" id="btnRef">Refresh</button>
+ </div></div>
+ <div class="grid-4" id="statsRow">
+ <div class="stat-card"><div class="value" id="st1">-</div><div class="label">Temp</div></div>
+ <div class="stat-card"><div class="value" id="st2">-</div><div class="label">WBGT</div></div>
+ <div class="stat-card"><div class="value" id="st3">-</div><div class="label">Beh</div></div>
+ <div class="stat-card"><div class="value" id="st4">-</div><div class="label">Stress</div></div>
+ </div>
+ <div class="card"><div class="card-title">1 Temperature / WBGT</div><div class="chart-container"><canvas id="c1"></canvas></div></div>
+ <div class="grid-2">
+ <div class="card"><div class="card-title">2 Box Plot</div><div class="chart-container"><canvas id="c2"></canvas></div></div>
+<div class="card"><div class="card-title">3 遮荫和行为关系</div><div class="chart-container"><canvas id="c3"></canvas></div></div>
+ </div>
+ <div class="grid-2">
+ <div class="card"><div class="card-title">4 Behavior</div><div class="chart-container"><canvas id="c4"></canvas></div></div>
+<div class="card"><div class="card-title">5 微气候 年龄 行为三重分析</div><div class="chart-container"><canvas id="c5"></canvas></div></div>
+ </div>
+ </div>
+ <div id="dbg" style="position:fixed;bottom:8px;right:8px;background:#1e293b;color:#fff;padding:4px 12px;border-radius:4px;font-size:11px;z-index:9999;">init</div>
+ <script>
+ var CC=["#2563eb","#dc2626","#16a34a","#d97706","#7c3aed","#0891b2"];
+ var CH={};var IDS=[];var d=document.getElementById("dbg");
+ function g(m){d.textContent+=" "+m;}
+ function dk(k){if(CH[k]){CH[k].destroy();delete CH[k];}}
+ function _f(m,c){for(var k in m)for(var k2 in m[k])if(c.indexOf(k2)<0)c.push(k2);return c;}
+ async function _g(u){var r=await fetch(u);if(!r.ok)throw new Error(r.status);return r.json();}
+ 
+ async function loadData(){
+  var q=IDS.join(",");if(!q)return;g("go");
+  try{
+   var s=await _g("/api/analysis/stats?batch_ids="+q);g("S");
+   var t=await _g("/api/analysis/timeseries?batch_ids="+q);g("T");
+   var bd=await _g("/api/analysis/behavior-distribution?batch_ids="+q);g("B");
+   var bx=await _g("/api/analysis/boxplot?batch_ids="+q);g("X");
+   var sd=await _g("/api/analysis/shade-stacked?batch_ids="+q);g("Sd");
+   var sa;try{sa=await _g("/api/analysis/shade-by-age?batch_ids="+q);g("Sa");}catch(e){g("SaE");}
+   
+   try{document.getElementById("st1").textContent=(s.temp_min||"-")+"~"+(s.temp_max||"-");
+   document.getElementById("st2").textContent=(s.wbgt_min||"-")+"~"+(s.wbgt_max||"-");
+   document.getElementById("st3").textContent=s.total_behaviors||0;
+   var wd=s.wbgt_distribution||{};var tot=(wd.safe||0)+(wd.caution||0)+(wd.danger||0)+(wd.extreme||0);
+   document.getElementById("st4").textContent=tot?Math.round(((wd.danger||0)+(wd.extreme||0))/tot*100)+"%":"0%";g("St");
+   }catch(e){g("StE");}
+   
+   // 1 Timeseries
+   try{dk("c1");var ctx=document.getElementById("c1").getContext("2d");var ds=[];var ci=0;
+   for(var lb in t){var rs=t[lb];var tp=[],wg=[];for(var j=0;j<rs.length;j++){var r=rs[j];
+   if(r.temperature!=null)tp.push({x:r.timestamp,y:r.temperature});if(r.wbgt!=null)wg.push({x:r.timestamp,y:r.wbgt});}
+   var c=CC[ci%6];if(tp.length)ds.push({label:lb+" T",data:tp,borderColor:c,borderWidth:1.5,pointRadius:0,tension:0.3,fill:false});
+   if(wg.length)ds.push({label:lb+" W",data:wg,borderColor:c,borderWidth:2.5,pointRadius:0,tension:0.3,borderDash:[4,3],fill:false});ci++;}
+   CH["c1"]=new Chart(ctx,{type:"line",data:{datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{font:{size:10}}}},scales:{x:{type:"time",time:{tooltipFormat:"MM-dd HH:mm"}},y:{title:{display:true,text:"C"}}}}});
+   g("T1");}catch(e){g("T1E");}
+   
+   // 2 Box plot
+   try{dk("c2");if(bx&&bx.length){var ctx=document.getElementById("c2").getContext("2d");
+   CH["c2"]=new Chart(ctx,{type:"bar",data:{labels:bx.map(function(d){return d.behavior}),datasets:[
+   {label:"Range",data:bx.map(function(d){return[d.min,d.max]}),backgroundColor:"rgba(100,116,139,0.15)",borderRadius:0},
+   {label:"IQR",data:bx.map(function(d){return[d.q1,d.q3]}),backgroundColor:CC.slice(0,bx.length),borderRadius:0}]},
+   options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{font:{size:10}}}},scales:{x:{title:{display:true,text:"Behavior"}},y:{title:{display:true,text:"C"},beginAtZero:false}}}});
+   g("B2");}}catch(e){g("B2E");}
+   
+   // 3 Shade stacked
+   try{dk("c3");if(sd&&sd.bins){var ctx=document.getElementById("c3").getContext("2d");
+   var envs=["\u5168\u906e\u9634","\u5168\u906e\u837d","\u534a\u906e\u9634","\u534a\u906e\u837d","\u66dd\u6652"];
+   var ec=["#16a34a","#22c55e","#d97706","#f59e0b","#dc2626"];var ds=[];
+   envs.forEach(function(env,i){var vals=sd.bins.map(function(b){return(sd.data[b]&&sd.data[b][env])?sd.data[b][env]:0});
+   if(vals.some(function(v){return v>0}))ds.push({label:env,data:vals,backgroundColor:ec[i%5]});});
+   CH["c3"]=new Chart(ctx,{type:"bar",data:{labels:sd.bins,datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{font:{size:10}}}},scales:{x:{stacked:true,title:{display:true,text:"C"}},y:{stacked:true,beginAtZero:true,title:{display:true,text:"Count"}}}}});
+   g("S3");}}catch(e){g("S3E");}
+   
+   // 4 Behavior
+   try{dk("c4");var labs=_f(bd,[]);if(labs.length){var ctx=document.getElementById("c4").getContext("2d");var ds=[];ci=0;
+   for(var ba in bd){ds.push({label:ba,data:labs.map(function(l){return bd[ba][l]||0}),backgroundColor:CC[ci%6]});ci++;}
+   CH["c4"]=new Chart(ctx,{type:"bar",data:{labels:labs,datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{font:{size:10}}}},scales:{x:{stacked:true,title:{display:true,text:"Type"}},y:{stacked:true,beginAtZero:true,title:{display:true,text:"Count"}}}}});
+   g("B4");}}catch(e){g("B4E");}
+   
+   // 5 Shade age
+   try{dk("c5");if(sa&&sa.ages&&sa.ages.length){var ctx=document.getElementById("c5").getContext("2d");
+   var envs={};for(var a in sa.data)for(var e in sa.data[a])envs[e]=true;var el=Object.keys(envs);
+   var ec2=["#16a34a","#22c55e","#d97706","#f59e0b","#dc2626"];ci=0;var ds=[];
+   el.forEach(function(env,i){var vals=sa.ages.map(function(a){return(sa.data[a]&&sa.data[a][env])?sa.data[a][env]:0});
+   if(vals.some(function(v){return v>0}))ds.push({label:env,data:vals,backgroundColor:ec2[i%5]});});
+   CH["c5"]=new Chart(ctx,{type:"bar",data:{labels:sa.ages,datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{font:{size:10}}}},scales:{x:{stacked:true,title:{display:true,text:"Age"}},y:{stacked:true,beginAtZero:true,title:{display:true,text:"Count"}}}}});
+   g("S5");}}catch(e){g("S5E");}
+   
+   g("OK");
+  }catch(e){g("E"+(e.message||"").slice(0,20));}
+ }
+ 
+ async function init(){
+  try{
+   var b=await _g("/api/batches");g("B"+b.length);
+   var c=document.getElementById("filters");if(!b.length){c.innerHTML="<p>No data</p>";return;}
+   var h="";
+   for(var i=0;i<b.length;i++){var bi=b[i];var si=String(bi.id);IDS.push(si);
+   h+="<span class='chip active' data-id='"+si+"'>"+(bi.date_label||"")+" "+(bi.time_period||"")+" <span class='count'>#"+si+"</span></span>";}
+   c.innerHTML=h;
+   c.querySelectorAll(".chip").forEach(function(e){e.onclick=function(){
+    var idx=IDS.indexOf(this.dataset.id);if(idx>=0){IDS.splice(idx,1);this.classList.remove("active");}else{IDS.push(this.dataset.id);this.classList.add("active");}
+   };});
+   document.getElementById("btnAll").onclick=function(){c.querySelectorAll(".chip").forEach(function(e){e.classList.add("active");});IDS=Array.from(c.querySelectorAll(".chip")).map(function(e){return e.dataset.id;});};
+   document.getElementById("btnClr").onclick=function(){c.querySelectorAll(".chip").forEach(function(e){e.classList.remove("active");});IDS=[];};
+   document.getElementById("btnRef").onclick=loadData;
+   g("Rdy");await loadData();
+  }catch(e){g("I:"+(e.message||"").slice(0,15));}
+ }
+ document.addEventListener("DOMContentLoaded",init);
+ </script>
+ </body></html>

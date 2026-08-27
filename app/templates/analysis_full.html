@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<title>分析</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<script src="/static/js/chart.umd.min.js"></script>
+<script src="/static/js/chartjs-adapter-date-fns.bundle.min.js"></script>
+</head><body>
+<nav class="nav"><span class="nav-title">微气候观测</span><a href="/">概览</a><a href="/upload">上传</a><a href="/analysis" class="active">分析</a></nav>
+<div class="container">
+
+<div class="card"><div class="card-title">批次</div>
+<div class="filter-bar" id="batchList"></div>
+<div style="margin-top:8px;display:flex;gap:8px">
+<button class="btn btn-outline" id="selectAll">全选</button>
+<button class="btn btn-outline" id="clearAll">清空</button>
+<button class="btn btn-primary" id="refreshBtn">刷新</button>
+</div></div>
+
+<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+<button class="btn btn-outline filter-period active" data-period="all" onclick="filterPeriod(this)">全部</button>
+<button class="btn btn-outline filter-period" data-period="上午" onclick="filterPeriod(this)">上午</button>
+<button class="btn btn-outline filter-period" data-period="中午" onclick="filterPeriod(this)">中午</button>
+<button class="btn btn-outline filter-period" data-period="下午" onclick="filterPeriod(this)">下午</button>
+<button class="btn btn-outline filter-period" data-period="傍晚" onclick="filterPeriod(this)">傍晚</button>
+</div>
+
+<div class="grid-4">
+<div class="stat-card"><div class="value" id="st1">-</div><div class="label">气温</div></div>
+<div class="stat-card"><div class="value" id="st2">-</div><div class="label">WBGT</div></div>
+<div class="stat-card"><div class="value" id="st3">-</div><div class="label">行为</div></div>
+<div class="stat-card"><div class="value" id="st4">-</div><div class="label">热应激</div></div>
+</div>
+
+<div class="card"><div class="card-title">1 温度/WBGT</div><div class="chart-container"><canvas id="c1"></canvas></div></div>
+
+<div class="grid-2">
+<div class="card"><div class="card-title">2 箱线图</div><div class="chart-container"><canvas id="c2"></canvas></div></div>
+<div class="card"><div class="card-title">3 遮荫-行为</div><div class="chart-container"><canvas id="c3"></canvas></div></div>
+</div>
+
+<div class="grid-2">
+<div class="card"><div class="card-title">4 温度-行为</div><div class="chart-container"><canvas id="c4"></canvas></div></div>
+<div class="card"><div class="card-title">5 WBGT-年龄-行为</div><div class="chart-container"><canvas id="c5"></canvas></div></div>
+</div>
+
+</div>
+<script>
+var CC=["#2563eb","#dc2626","#16a34a","#d97706","#7c3aed","#0891b2","#db2777","#ca8a04"];
+var CH={};var IDS=[];
+function destroy(k){if(CH[k]){CH[k].destroy();delete CH[k];}}
+function fu(u){return fetch(u).then(function(r){if(!r.ok)throw new Error(r.status);return r.json();});}
+var AO=["青年","中年","老年"];
+
+function defOpts(extra){
+ var o={responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{font:{size:10}}}},scales:{}};
+ if(extra)Object.assign(o,extra);
+ return o;
+}
+
+async function ld(){
+ var q=IDS.join(",");if(!q)return;
+ try{
+  var stats=await fu("/api/analysis/stats?batch_ids="+q);
+  var ts=await fu("/api/analysis/timeseries?batch_ids="+q);
+  var bx=await fu("/api/analysis/boxplot?batch_ids="+q);
+  var bt=await fu("/api/analysis/behavior-by-temp?batch_ids="+q);
+  var wbgtAge=await fu("/api/analysis/wbgt-age-behavior?batch_ids="+q);
+  var raw=await fu("/api/analysis/raw-behaviors?batch_ids="+q);
+
+  document.getElementById("st1").textContent=(stats.temp_min||"-")+"~"+(stats.temp_max||"-");
+  document.getElementById("st2").textContent=(stats.wbgt_min||"-")+"~"+(stats.wbgt_max||"-");
+  document.getElementById("st3").textContent=stats.total_behaviors||0;
+  var wd=stats.wbgt_distribution||{};var tot=(wd.safe||0)+(wd.caution||0)+(wd.danger||0)+(wd.extreme||0);
+  document.getElementById("st4").textContent=tot?Math.round(((wd.danger||0)+(wd.extreme||0))/tot*100)+"%":"0%";
+
+  try{
+   destroy("c1");
+   var ds=[];var ci=0;
+   for(var lb in ts){var rs=ts[lb];var tp=[];var wg=[];for(var j=0;j<rs.length;j++){var r=rs[j];if(r.temperature!=null)tp.push({x:r.timestamp,y:r.temperature});if(r.wbgt!=null)wg.push({x:r.timestamp,y:r.wbgt});}
+   var c=CC[ci%8];if(tp.length)ds.push({label:lb+" T",data:tp,borderColor:c,borderWidth:1.5,pointRadius:0,tension:0.3,fill:false});if(wg.length)ds.push({label:lb+" W",data:wg,borderColor:c,borderWidth:2.5,pointRadius:0,tension:0.3,borderDash:[4,3],fill:false});ci++;}
+   var opts=defOpts({scales:{x:{type:"time",time:{tooltipFormat:"MM-dd HH:mm"}},y:{title:{display:true,text:"C"}}}});
+   CH["c1"]=new Chart(document.getElementById("c1"),{type:"line",data:{datasets:ds},options:opts});
+  }catch(e){}
+
+  try{
+   destroy("c2");
+   if(bx&&bx.length){
+    CH["c2"]=new Chart(document.getElementById("c2"),{type:"bar",data:{labels:bx.map(function(d){return d.behavior}),datasets:[{label:"Range",data:bx.map(function(d){return[d.min,d.max]}),backgroundColor:"rgba(100,116,139,0.15)",borderRadius:0},{label:"IQR",data:bx.map(function(d){return[d.q1,d.q3]}),backgroundColor:CC.slice(0,bx.length),borderRadius:0}]},options:defOpts({scales:{x:{title:{display:true,text:"行为"}},y:{title:{display:true,text:"C"},beginAtZero:false}}})});
+   }
+  }catch(e){}
+
+  try{
+   destroy("c3");
+   var items=[];
+   for(var i=0;i<raw.length;i++){var r=raw[i];if(!r.behavior)continue;
+    var env=(r.chair_env||"").replace("荫","阴");if(!env)continue;
+    if(r.age&&r.age.indexOf("+")>=0){r.age.split("+").forEach(function(a){if(a.trim())items.push({age:a.trim(),behavior:r.behavior,env:env});});}
+    else{items.push({age:r.age||"",behavior:r.behavior,env:env});}
+   }
+   var sb={};for(var i=0;i<items.length;i++){var r=items[i];if(!r.env)continue;if(!sb[r.env])sb[r.env]={};sb[r.env][r.behavior]=(sb[r.env][r.behavior]||0)+1;}
+   var sl=Object.keys(sb);
+   if(sl.length){
+    var bb={};for(var s in sb)for(var b in sb[s])bb[b]=true;var bl=Object.keys(bb);
+    CH["c3"]=new Chart(document.getElementById("c3"),{type:"bar",data:{labels:sl,datasets:bl.map(function(b,i){return{label:b,data:sl.map(function(s){return(sb[s]&&sb[s][b])?sb[s][b]:0}),backgroundColor:CC[i%8]};})},options:defOpts({scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true}}})});
+   }
+  }catch(e){}
+
+  try{
+   destroy("c4");
+   if(bt&&bt.bins&&bt.data){
+    var bins=bt.bins;var bd=bt.data;
+    var bevs={};for(var bin in bd)for(var k in bd[bin])bevs[k]=true;var bevsList=Object.keys(bevs);
+    var ds=[];
+    for(var i=0;i<bevsList.length;i++){
+     var b=bevsList[i];var data=bins.map(function(bin){return(bd[bin]&&bd[bin][b])?bd[bin][b]:0;});
+     ds.push({label:b,data:data,borderColor:CC[i%8],backgroundColor:CC[i%8],pointRadius:3,pointHoverRadius:5,tension:0.2,fill:false});
+    }
+    CH["c4"]=new Chart(document.getElementById("c4"),{type:"line",data:{labels:bins,datasets:ds},options:defOpts({scales:{x:{title:{display:true,text:"气温区间"}},y:{beginAtZero:true,title:{display:true,text:"计数"}}}})});
+   }
+  }catch(e){}
+
+  try{
+   destroy("c5");
+   if(wbgtAge&&wbgtAge.length){
+    var labels=wbgtAge.map(function(d){return d.age+"-"+d.zone;});
+    var bevs={};for(var i=0;i<wbgtAge.length;i++)for(var b in wbgtAge[i].behaviors)bevs[b]=true;var bl2=Object.keys(bevs);
+    CH["c5"]=new Chart(document.getElementById("c5"),{type:"bar",data:{labels:labels,datasets:bl2.map(function(b,i){return{label:b,data:wbgtAge.map(function(d){return(d.behaviors&&d.behaviors[b])?d.behaviors[b]:0;}),backgroundColor:CC[i%8]};})},options:defOpts({scales:{x:{stacked:true,title:{display:true,text:"年龄-WBGT区间"}},y:{stacked:true,beginAtZero:true,title:{display:true,text:"计数"}}}})});
+   }
+  }catch(e){}
+ }catch(e){}
+}
+
+function filterPeriod(el){
+ document.querySelectorAll(".filter-period").forEach(function(e){e.classList.remove("active");});
+ el.classList.add("active");
+ var period=el.dataset.period;
+ var list=document.getElementById("batchList");
+ var chips=list.querySelectorAll(".chip");
+ // If "all", select all; otherwise select only matching period
+ IDS=[];
+ chips.forEach(function(e){
+   if(period=="all"||e.dataset.period==period){
+     IDS.push(e.dataset.id);
+     e.classList.add("active");
+   }else{
+     e.classList.remove("active");
+   }
+ });
+ ld();
+}
+
+async function init(){
+ try{
+  var bd=await fu("/api/batches");
+  var list=document.getElementById("batchList");if(!bd.length){list.innerHTML="<p>暂无数据</p>";return;}
+  var h="";for(var i=0;i<bd.length;i++){var bi=bd[i];var si=String(bi.id);IDS.push(si);
+  h+="<span class='chip active' data-id='"+si+"' data-period='"+(bi.time_period||"")+"'>"+(bi.date_label||"")+" "+(bi.time_period||"")+"</span>";}
+  list.innerHTML=h;
+  list.querySelectorAll(".chip").forEach(function(e){e.onclick=function(){var idx=IDS.indexOf(this.dataset.id);if(idx>=0){IDS.splice(idx,1);this.classList.remove("active");}else{IDS.push(this.dataset.id);this.classList.add("active");}};});
+  document.getElementById("selectAll").onclick=function(){list.querySelectorAll(".chip").forEach(function(e){e.classList.add("active");});IDS=Array.from(list.querySelectorAll(".chip")).map(function(e){return e.dataset.id;});};
+  document.getElementById("clearAll").onclick=function(){list.querySelectorAll(".chip").forEach(function(e){e.classList.remove("active");});IDS=[];};
+  document.getElementById("refreshBtn").onclick=ld;
+  await ld();
+ }catch(e){}
+}
+document.addEventListener("DOMContentLoaded",init);
+</script></script>
+</body></html>

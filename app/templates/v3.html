@@ -1,0 +1,125 @@
+ <!DOCTYPE html>
+ <html><head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width,initial-scale=1.0">
+ <title>数据分析</title>
+ <link rel="stylesheet" href="/static/css/style.css">
+ <script src="/static/js/chart.umd.min.js"></script>
+ <script src="/static/js/chartjs-adapter-date-fns.bundle.min.js"></script>
+ </head><body>
+ <nav class="nav"><span class="nav-title">微气候观测</span><a href="/">概览</a><a href="/upload">上传</a><a href="/static/v3.html" class="active">分析</a></nav>
+ <div class="container">
+ <div class="card"><div class="card-title">选择批次</div>
+ <div class="filter-bar" id="filters"></div>
+ <div style="margin-top:8px;display:flex;gap:8px">
+ <button class="btn btn-outline" id="btnAll">全选</button>
+ <button class="btn btn-outline" id="btnClr">清空</button>
+ <button class="btn btn-primary" id="btnRef">刷新</button>
+ </div></div>
+ <div class="grid-4" id="statsRow">
+ <div class="stat-card"><div class="value" id="st1">-</div><div class="label">温度</div></div>
+ <div class="stat-card"><div class="value" id="st2">-</div><div class="label">WBGT</div></div>
+ <div class="stat-card"><div class="value" id="st3">-</div><div class="label">行为</div></div>
+ <div class="stat-card"><div class="value" id="st4">-</div><div class="label">热应力</div></div>
+ </div>
+ <div class="card"><div class="card-title">1 温度/WBGT</div><div class="chart-container"><canvas id="c1"></canvas></div></div>
+ <div class="grid-2">
+ <div class="card"><div class="card-title">2 箱线图</div><div class="chart-container"><canvas id="c2"></canvas></div></div>
+ <div class="card"><div class="card-title">3 遮荫和行为关系</div><div class="chart-container"><canvas id="c3"></canvas></div></div>
+ </div>
+ <div class="grid-2">
+ <div class="card"><div class="card-title">4 行为分布</div><div class="chart-container"><canvas id="c4"></canvas></div></div>
+ <div class="card"><div class="card-title">5 微气候-年龄-行为</div><div class="chart-container"><canvas id="c5"></canvas></div></div>
+ </div>
+ </div>
+ <div id="dbg" style="position:fixed;bottom:8px;right:8px;background:#1e293b;color:#fff;padding:4px 12px;border-radius:4px;font-size:10px;z-index:9999;max-width:60%;overflow:hidden;">init</div>
+ <script>
+ var CC=["#2563eb","#dc2626","#16a34a","#d97706","#7c3aed","#0891b2","#db2777","#ca8a04"];
+ var CH={};var IDS=[];var d=document.getElementById("dbg");
+ function g(m){d.textContent+=" "+m;}
+ function dk(k){if(CH[k]){CH[k].destroy();delete CH[k];}}
+ function _g(u){return fetch(u).then(function(r){if(!r.ok)throw new Error(r.status);return r.json();});}
+ function _grp(arr,key1,key2){var r={};for(var i=0;i<arr.length;i++){var it=arr[i];var k1=it[key1];var k2=it[key2];if(!k1||!k2)continue;if(!r[k1])r[k1]={};r[k1][k2]=(r[k1][k2]||0)+1;}return r;}
+ 
+ async function loadData(){
+  var q=IDS.join(",");if(!q)return;g("go");
+  try{
+   var s=await _g("/api/analysis/stats?batch_ids="+q);g("S");
+   var t=await _g("/api/analysis/timeseries?batch_ids="+q);g("T");
+   var bd=await _g("/api/analysis/behavior-distribution?batch_ids="+q);g("B");
+   var bx=await _g("/api/analysis/boxplot?batch_ids="+q);g("X");
+   var raw=await _g("/api/analysis/behavior-raw?batch_ids="+q);g("R"+raw.length);
+   
+   try{document.getElementById("st1").textContent=(s.temp_min||"-")+"~"+(s.temp_max||"-");
+   document.getElementById("st2").textContent=(s.wbgt_min||"-")+"~"+(s.wbgt_max||"-");
+   document.getElementById("st3").textContent=s.total_behaviors||0;
+   var wd=s.wbgt_distribution||{};var tot=(wd.safe||0)+(wd.caution||0)+(wd.danger||0)+(wd.extreme||0);
+   document.getElementById("st4").textContent=tot?Math.round(((wd.danger||0)+(wd.extreme||0))/tot*100)+"%":"0%";g("St");
+   }catch(e){g("StE");}
+   
+   // 1 Timeseries
+   try{dk("c1");var ctx=document.getElementById("c1").getContext("2d");var ds=[];var ci=0;
+   for(var lb in t){var rs=t[lb];var tp=[],wg=[];for(var j=0;j<rs.length;j++){var r=rs[j];
+   if(r.temperature!=null)tp.push({x:r.timestamp,y:r.temperature});if(r.wbgt!=null)wg.push({x:r.timestamp,y:r.wbgt});}
+   var c=CC[ci%8];if(tp.length)ds.push({label:lb+" T",data:tp,borderColor:c,borderWidth:1.5,pointRadius:0,tension:0.3,fill:false});
+   if(wg.length)ds.push({label:lb+" W",data:wg,borderColor:c,borderWidth:2.5,pointRadius:0,tension:0.3,borderDash:[4,3],fill:false});ci++;}
+   CH["c1"]=new Chart(ctx,{type:"line",data:{datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{font:{size:10}}}},scales:{x:{type:"time",time:{tooltipFormat:"MM-dd HH:mm"}},y:{title:{display:true,text:"C"}}}}});
+   g("T1");}catch(e){g("T1E");}
+   
+   // 2 Box plot
+   try{dk("c2");if(bx&&bx.length){var ctx=document.getElementById("c2").getContext("2d");
+   CH["c2"]=new Chart(ctx,{type:"bar",data:{labels:bx.map(function(d){return d.behavior}),datasets:[
+   {label:"Range",data:bx.map(function(d){return[d.min,d.max]}),backgroundColor:"rgba(100,116,139,0.15)",borderRadius:0},
+   {label:"IQR",data:bx.map(function(d){return[d.q1,d.q3]}),backgroundColor:CC.slice(0,bx.length),borderRadius:0}]},
+   options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{font:{size:10}}}},scales:{x:{title:{display:true,text:"Behavior"}},y:{title:{display:true,text:"C"},beginAtZero:false}}}});
+   g("B2");}}catch(e){g("B2E");}
+   
+   // 3 Shade x Behavior
+   try{dk("c3");if(raw&&raw.length){
+   var sb=_grp(raw,"chair_env","behavior");var sl=Object.keys(sb);
+   if(sl.length){var bs={};for(var s in sb)for(var b in sb[s])bs[b]=true;var bl=Object.keys(bs);
+   var ctx=document.getElementById("c3").getContext("2d");var ds=[];var ci=0;var ec=["#16a34a","#22c55e","#d97706","#f59e0b","#dc2626","#2563eb","#7c3aed","#0891b2"];
+   bl.forEach(function(b,i){var vals=sl.map(function(s){return(sb[s]&&sb[s][b])?sb[s][b]:0});if(vals.some(function(v){return v>0}))ds.push({label:b,data:vals,backgroundColor:ec[i%8]});});
+   CH["c3"]=new Chart(ctx,{type:"bar",data:{labels:sl,datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{font:{size:10}}}},scales:{x:{stacked:true,title:{display:true,text:"Shade"}},y:{stacked:true,beginAtZero:true,title:{display:true,text:"Count"}}}}});
+   g("S3");}}catch(e){g("S3E");}
+   
+   // 4 Behavior
+   try{dk("c4");var labs=[];for(var k in bd)for(var k2 in bd[k])if(labs.indexOf(k2)<0)labs.push(k2);
+   if(labs.length){var ctx=document.getElementById("c4").getContext("2d");var ds=[];ci=0;
+   for(var ba in bd){ds.push({label:ba,data:labs.map(function(l){return bd[ba][l]||0}),backgroundColor:CC[ci%8]});ci++;}
+   CH["c4"]=new Chart(ctx,{type:"bar",data:{labels:labs,datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{font:{size:10}}}},scales:{x:{stacked:true,title:{display:true,text:"Type"}},y:{stacked:true,beginAtZero:true,title:{display:true,text:"Count"}}}}});
+   g("B4");}}catch(e){g("B4E");}
+   
+   // 5 Age x Behavior
+   try{dk("c5");if(raw&&raw.length){
+   var ab=_grp(raw,"age","behavior");var al=Object.keys(ab);
+   if(al.length){var bs={};for(var a in ab)for(var b in ab[a])bs[b]=true;var bl=Object.keys(bs);
+   var ctx=document.getElementById("c5").getContext("2d");var ds=[];var ci=0;var ec=["#16a34a","#22c55e","#d97706","#f59e0b","#dc2626","#2563eb","#7c3aed","#0891b2"];
+   bl.forEach(function(b,i){var vals=al.map(function(a){return(ab[a]&&ab[a][b])?ab[a][b]:0});if(vals.some(function(v){return v>0}))ds.push({label:b,data:vals,backgroundColor:ec[i%8]});});
+   CH["c5"]=new Chart(ctx,{type:"bar",data:{labels:al,datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{font:{size:10}}}},scales:{x:{stacked:true,title:{display:true,text:"Age"}},y:{stacked:true,beginAtZero:true,title:{display:true,text:"Count"}}}}});
+   g("S5");}}catch(e){g("S5E");}
+   
+   g("OK");
+  }catch(e){g("E"+(e.message||"").slice(0,20));}
+ }
+ 
+ async function init(){
+  try{
+   var b=await _g("/api/batches");g("B"+b.length);
+   var c=document.getElementById("filters");if(!b.length){c.innerHTML="<p>No data</p>";return;}
+   var h="";
+   for(var i=0;i<b.length;i++){var bi=b[i];var si=String(bi.id);IDS.push(si);
+   h+="<span class='chip active' data-id='"+si+"'>"+(bi.date_label||"")+" "+(bi.time_period||"")+" <span class='count'>#"+si+"</span></span>";}
+   c.innerHTML=h;
+   c.querySelectorAll(".chip").forEach(function(e){e.onclick=function(){
+    var idx=IDS.indexOf(this.dataset.id);if(idx>=0){IDS.splice(idx,1);this.classList.remove("active");}else{IDS.push(this.dataset.id);this.classList.add("active");}
+   };});
+   document.getElementById("btnAll").onclick=function(){c.querySelectorAll(".chip").forEach(function(e){e.classList.add("active");});IDS=Array.from(c.querySelectorAll(".chip")).map(function(e){return e.dataset.id;});};
+   document.getElementById("btnClr").onclick=function(){c.querySelectorAll(".chip").forEach(function(e){e.classList.remove("active");});IDS=[];};
+   document.getElementById("btnRef").onclick=loadData;
+   g("Rdy");await loadData();
+  }catch(e){g("I:"+(e.message||"").slice(0,15));}
+ }
+ document.addEventListener("DOMContentLoaded",init);
+ </script>
+ </body></html>

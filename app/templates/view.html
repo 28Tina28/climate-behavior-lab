@@ -1,0 +1,49 @@
+ <!DOCTYPE html>
+ <html><head>
+ <meta charset="UTF-8">
+ <title>Analysis</title>
+ <script src="/static/js/chart.umd.min.js"></script>
+ <script src="/static/js/chartjs-adapter-date-fns.bundle.min.js"></script>
+ </head><body>
+ <div id="dbg" style="background:rgba(0,0,0,0.8);color:#0f0;padding:8px;font-size:13px;font-family:monospace;position:fixed;bottom:0;left:0;right:0;z-index:9999;">init</div>
+ <div id="app"></div>
+ <script>
+ var d=document.getElementById("dbg");
+ function t(m){d.textContent+=" "+m;}
+ t("jsok");
+ 
+ async function init(){
+  try{
+   t("fetchB");
+   var r=await fetch("/api/batches");var b=await r.json();
+   t("B"+b.length);
+   if(!b.length){document.getElementById("app").innerHTML="<p>No data</p>";return;}
+   var ids=b.map(function(x){return x.id}).join(",");
+   
+   t("fetchD");
+   var r1=await fetch("/api/analysis/timeseries?batch_ids="+ids);var ts=await r1.json();
+   t("TS"+Object.keys(ts).length);
+   
+   t("render");
+   var keys=Object.keys(ts);
+   if(keys.length){
+    var ctx=document.createElement("canvas");ctx.id="c1";ctx.width=800;ctx.height=300;ctx.style="max-width:100%";
+    document.getElementById("app").appendChild(ctx);
+    var ds=[];var ci=0;var colors=["#2563eb","#dc2626","#16a34a","#d97706","#7c3aed","#0891b2"];
+    for(var i=0;i<keys.length;i++){
+     var label=keys[i];var recs=ts[label];var pts=[];
+     for(var j=0;j<recs.length;j++){var r=recs[j];if(r.temperature!=null)pts.push({x:r.timestamp,y:r.temperature});}
+     if(pts.length)ds.push({label:label,data:pts,borderColor:colors[ci%6],borderWidth:2,pointRadius:0,tension:0.3,fill:false});
+     ci++;
+    }
+    new Chart(ctx.getContext("2d"),{type:"line",data:{datasets:ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}},scales:{x:{type:"time",time:{tooltipFormat:"MM-dd HH:mm"}},y:{title:{display:true,text:"Temp(C)"}}}}});
+    t("chartOK");
+   }
+   
+   t("done");
+  }catch(e){t("ERR:"+(e.message||"").slice(0,40));}
+ }
+ 
+ init();
+ </script>
+ </body></html>

@@ -1,0 +1,38 @@
+ <!DOCTYPE html>
+ <html><head>
+ <meta charset="UTF-8">
+ <title>New Charts</title>
+ <script src="/static/js/chart.umd.min.js"></script>
+ <script src="/static/js/chartjs-adapter-date-fns.bundle.min.js"></script>
+ <style>body{font-family:sans-serif;margin:20px}.chart{width:800px;height:300px;margin-bottom:30px}h2{margin:0 0 10px}</style>
+ </head><body>
+ <h2>3 遮荫和行为关系</h2>
+ <div class="chart"><canvas id="c3"></canvas></div>
+ <h2>5 微气候-年龄-行为</h2>
+ <div class="chart"><canvas id="c5"></canvas></div>
+ <div id="s" style="position:fixed;bottom:8px;right:8px;background:#333;color:#0f0;padding:4px 8px;font-size:12px;z-index:99;">init</div>
+ <script>
+ var d=document.getElementById("s");function g(m){d.textContent+=" "+m;}g("go");
+ 
+ async function init(){
+  try{
+   var raw=await(await fetch("/api/analysis/raw-behaviors")).json();g("R"+raw.length);
+   
+   // Chart 3: shade x behavior
+   var sb={};for(var i=0;i<raw.length;i++){var r=raw[i];if(!r.chair_env||!r.behavior)continue;if(!sb[r.chair_env])sb[r.chair_env]={};sb[r.chair_env][r.behavior]=(sb[r.chair_env][r.behavior]||0)+1;}
+   var sl=Object.keys(sb);
+   if(sl.length){var bs={};for(var s in sb)for(var b in sb[s])bs[b]=true;var bl=Object.keys(bs);
+    new Chart(document.getElementById("c3"),{type:"bar",data:{labels:sl,datasets:bl.map(function(b,i){var vals=sl.map(function(s){return(sb[s]&&sb[s][b])?sb[s][b]:0});return{label:b,data:vals,backgroundColor:["#16a34a","#22c55e","#d97706","#f59e0b","#dc2626","#2563eb","#7c3aed","#0891b2"][i%8]};})},options:{responsive:true,plugins:{legend:{position:"bottom"}},scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true}}}});g("C3");}
+   
+   // Chart 5: age x behavior
+   var ab={};for(var i=0;i<raw.length;i++){var r=raw[i];if(!r.age||!r.behavior)continue;if(!ab[r.age])ab[r.age]={};ab[r.age][r.behavior]=(ab[r.age][r.behavior]||0)+1;}
+   var al=Object.keys(ab);
+   if(al.length){var bs={};for(var a in ab)for(var b in ab[a])bs[b]=true;var bl=Object.keys(bs);
+    new Chart(document.getElementById("c5"),{type:"bar",data:{labels:al,datasets:bl.map(function(b,i){var vals=al.map(function(a){return(ab[a]&&ab[a][b])?ab[a][b]:0});return{label:b,data:vals,backgroundColor:["#16a34a","#22c55e","#d97706","#f59e0b","#dc2626","#2563eb","#7c3aed","#0891b2"][i%8]};})},options:{responsive:true,plugins:{legend:{position:"bottom"}},scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true}}}});g("C5");}
+   
+   g("OK");
+  }catch(e){g("E:"+(e.message||"").slice(0,30));}
+ }
+ init();
+ </script>
+ </body></html>

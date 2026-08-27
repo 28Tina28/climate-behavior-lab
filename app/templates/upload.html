@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>上传数据</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<nav class="nav">
+  <span class="nav-title">微气候观测</span>
+  <a href="/">概览</a>
+  <a href="/upload" class="active">上传</a>
+  <a href="/analysis">分析</a>
+</nav>
+<div class="container">
+  <h1 class="page-title">上传观测数据</h1>
+  <p class="page-subtitle">每次上传一对文件：气候数据 CSV + 观测记录 XLSX</p>
+  <div class="card">
+    <div class="card-title">选择文件</div>
+    <input type="file" id="csvIn" accept=".csv" style="display:none">
+    <div class="upload-zone" id="csvZone" onclick="document.getElementById('csvIn').click()">
+      <div>[CSV]</div>
+      <div>点击选择气象仪 CSV 文件</div>
+      <div class="filename" id="csvName"></div>
+    </div>
+    <input type="file" id="xlsxIn" accept=".xlsx" style="display:none">
+    <div class="upload-zone" id="xlsxZone" onclick="document.getElementById('xlsxIn').click()">
+      <div>[XLSX]</div>
+      <div>点击选择观测记录 Excel 文件</div>
+      <div class="filename" id="xlsxName"></div>
+    </div>
+    <button class="btn btn-success" id="uploadBtn" disabled onclick="doUpload()" style="margin-top:12px">↑ 上传并分析</button>
+    <div id="uploadStatus" style="margin-top:12px;display:none;padding:12px;border-radius:8px;"></div>
+    <div class="card" style="margin-top:16px;background:#f8fafc;">
+      <div class="card-title">备用方法：直接粘贴 CSV 内容</div>
+      <p style="font-size:13px;color:#64748b;">如果上传按钮不起作用，用记事本打开 CSV 文件，全选复制后粘贴到下方文本框。</p>
+      <textarea id="csvTextArea" rows="4" style="width:100%;font-family:monospace;font-size:12px;border:1px solid #cbd5e1;border-radius:6px;padding:8px;" placeholder="在此粘贴 CSV 文件内容..."></textarea>
+      <button class="btn btn-outline" onclick="pasteUpload()" style="margin-top:8px">粘贴上传</button>
+    </div>
+  </div>
+</div>
+<script>
+var cf=null, xf=null;
+
+document.getElementById("csvIn").onchange = function(e){
+  cf = e.target.files[0];
+  document.getElementById("csvName").textContent = cf ? cf.name : "";
+  document.getElementById("csvZone").classList.toggle("has-file", !!cf);
+  checkReady();
+};
+document.getElementById("xlsxIn").onchange = function(e){
+  xf = e.target.files[0];
+  document.getElementById("xlsxName").textContent = xf ? xf.name : "";
+  document.getElementById("xlsxZone").classList.toggle("has-file", !!xf);
+  checkReady();
+};
+function checkReady(){
+  document.getElementById("uploadBtn").disabled = !(cf && xf);
+}
+function status(msg, ok){
+  var el = document.getElementById("uploadStatus");
+  el.style.display = "block";
+  el.style.background = ok ? "#f0fdf4" : "#fef2f2";
+  el.style.border = ok ? "1px solid #16a34a" : "1px solid #dc2626";
+  el.style.color = ok ? "#166534" : "#991b1b";
+  el.innerHTML = msg;
+}
+
+async function doUpload() {
+  if(!cf || !xf) return;
+  status("上传中...", true);
+  try {
+    // Read CSV file content using FileReader (creates fresh copy)
+    var csvBytes = await new Promise(function(resolve, reject) {
+      var r = new FileReader();
+      r.onload = function(e) { resolve(e.target.result); };
+      r.onerror = function() { reject("Read error"); };
+      r.readAsArrayBuffer(cf);
+    });
+    // Create a new Blob with the content (fresh copy)
+    var csvBlob = new Blob([csvBytes], {type: "application/octet-stream"});
+    
+    var fd = new FormData();
+    fd.append("climate_file", csvBlob, cf.name);
+    fd.append("observation_file", xf);
+    
+    var res = await fetch("/api/upload", {method:"POST", body:fd});
+    var data = await res.json();
+    if(data.success){
+      status("<strong>上传成功</strong><br>" + (data.climate_count||0) + " 条气候数据, " + (data.behavior_count||0) + " 条行为记录<br><a href='/analysis' style='color:#2563eb'>查看分析</a>", true);
+    } else {
+      status("<strong>上传失败</strong><br>" + (data.detail || data.error || "未知错误"), false);
+    }
+  } catch(e) {
+    status("<strong>上传失败</strong><br>" + e.message, false);
+  }
+}
+
+async function pasteUpload() {
+  var text = document.getElementById("csvTextArea").value.trim();
+  if(!text) { status("请先粘贴 CSV 内容", false); return; }
+  if(!xf) { status("请先选择 XLSX 文件", false); return; }
+  status("上传中...", true);
+  try {
+    var csvBlob = new Blob([text], {type: "application/octet-stream"});
+    var fd = new FormData();
+    fd.append("climate_file", csvBlob, "climate_data.csv");
+    fd.append("observation_file", xf);
+    var res = await fetch("/api/upload", {method:"POST", body:fd});
+    var data = await res.json();
+    if(data.success){
+      status("<strong>上传成功</strong><br>" + (data.climate_count||0) + " 条气候数据, " + (data.behavior_count||0) + " 条行为记录<br><a href='/analysis' style='color:#2563eb'>查看分析</a>", true);
+    } else {
+      status("<strong>上传失败</strong><br>" + (data.detail || data.error || "未知错误"), false);
+    }
+  } catch(e) {
+    status("<strong>上传失败</strong><br>" + e.message, false);
+  }
+}
+</script>
+</body>
+</html>

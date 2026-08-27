@@ -1,0 +1,45 @@
+ <!DOCTYPE html>
+ <html><head>
+ <meta charset="UTF-8">
+ <title>Charts</title>
+ <script src="/static/js/chart.umd.min.js"></script>
+ </head><body>
+ <h2>3 遮荫和行为关系</h2>
+ <div style="width:800px;height:300px;"><canvas id="c3"></canvas></div>
+ <h2>5 年龄-行为</h2>
+ <div style="width:800px;height:300px;"><canvas id="c5"></canvas></div>
+ <div id="s" style="position:fixed;bottom:8px;right:8px;background:#333;color:#0f0;padding:4px 8px;font-size:12px;">init</div>
+ <script>
+ var d=document.getElementById("s");function g(m){d.textContent+=" "+m;}g("go");
+ async function init(){
+  try{
+   var raw=await(await fetch("/api/analysis/raw-behaviors")).json();g("R"+raw.length);
+   var items=[];var ageOrder=["青年","中年","老年"];
+   for(var i=0;i<raw.length;i++){
+    var r=raw[i];if(!r.behavior)continue;
+    var env=(r.chair_env||"").replace("\u836b","\u9634"); // 荫→阴
+    if(r.age&&r.age.indexOf("+")>=0){
+     r.age.split("+").forEach(function(a){if(a.trim())items.push({age:a.trim(),behavior:r.behavior,env:env});});
+    }else{
+     items.push({age:r.age||"",behavior:r.behavior,env:env});
+    }
+   }g("p"+items.length);
+   
+   var sb={};for(var i=0;i<items.length;i++){var r=items[i];if(!r.env)continue;if(!sb[r.env])sb[r.env]={};sb[r.env][r.behavior]=(sb[r.env][r.behavior]||0)+1;}
+   var sl=Object.keys(sb);
+   if(sl.length){
+    var bb={};for(var s in sb)for(var b in sb[s])bb[b]=true;var bl=Object.keys(bb);
+    new Chart(document.getElementById("c3"),{type:"bar",data:{labels:sl,datasets:bl.map(function(b,i){return{label:b,data:sl.map(function(s){return(sb[s]&&sb[s][b])?sb[s][b]:0}),backgroundColor:["#16a34a","#22c55e","#d97706","#f59e0b","#dc2626","#2563eb"][i%6]};})},options:{responsive:true,plugins:{legend:{position:"bottom"}},scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true}}}});g("C3");}
+   
+   var ab={};for(var i=0;i<items.length;i++){var r=items[i];if(!r.age||!r.behavior)continue;if(!ab[r.age])ab[r.age]={};ab[r.age][r.behavior]=(ab[r.age][r.behavior]||0)+1;}
+   var al=Object.keys(ab).sort(function(a,b){var ai=ageOrder.indexOf(a),bi=ageOrder.indexOf(b);if(ai>=0&&bi>=0)return ai-bi;if(ai>=0)return -1;if(bi>=0)return 1;return a.localeCompare(b);});
+   if(al.length){
+    var bb={};for(var a in ab)for(var b in ab[a])bb[b]=true;var bl=Object.keys(bb);
+    new Chart(document.getElementById("c5"),{type:"bar",data:{labels:al,datasets:bl.map(function(b,i){return{label:b,data:al.map(function(a){return(ab[a]&&ab[a][b])?ab[a][b]:0}),backgroundColor:["#16a34a","#22c55e","#d97706","#f59e0b","#dc2626","#2563eb"][i%6]};})},options:{responsive:true,plugins:{legend:{position:"bottom"}},scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true}}}});g("C5");}
+   
+   g("OK");
+  }catch(e){g("E:"+(e.message||"").slice(0,30));}
+ }
+ init();
+ </script>
+ </body></html>
